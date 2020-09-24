@@ -44,6 +44,7 @@ BEGIN TRANSACTION;
     ALTER TABLE dbo.voucherx DISABLE TRIGGER ALL;
     ALTER TABLE dbo.vourowx DISABLE TRIGGER ALL;
     ALTER TABLE dbo.containerx DISABLE TRIGGER ALL;
+    ALTER TABLE dbo.seriex DISABLE TRIGGER ALL;
 
     --- Identify the vouchers we're going to delete:
     INSERT INTO #vouchers ([year], serie, vouno)
@@ -149,9 +150,36 @@ BEGIN TRANSACTION;
 
 
 
+    --- Update seriex.nextno where applicable
+    -----------------------------------------
+    UPDATE s
+    SET s.nextno=ISNULL(x.nextno, 0)
+    FROM dbo.seriex AS s
+    INNER JOIN (
+        SELECT DISTINCT [year], serie
+        FROM #vouchers
+        ) AS v ON s.[year]=v.[year] AND s.serie=v.serie
+    LEFT JOIN (
+        SELECT [year], serie, MAX(nextno) AS nextno
+        FROM (
+            SELECT [year], serie, MAX(vouno) AS nextno
+            FROM dbo.voucherx
+            GROUP BY [year], serie
+            UNION ALL
+            SELECT [year], serie, MAX(vouno) AS nextno
+            FROM dbo.voulogx
+            GROUP BY [year], serie
+            ) AS v
+        GROUP BY [year], serie
+        ) AS x ON v.[year]=x.[year] AND v.serie=x.serie
+    WHERE s.nextno!=ISNULL(x.nextno, 0);
+        
+
+
     ALTER TABLE dbo.voucherx ENABLE TRIGGER ALL;
     ALTER TABLE dbo.vourowx ENABLE TRIGGER ALL;
     ALTER TABLE dbo.containerx ENABLE TRIGGER ALL;
+    ALTER TABLE dbo.seriex DISABLE TRIGGER ALL;
 
 COMMIT TRANSACTION;
 
