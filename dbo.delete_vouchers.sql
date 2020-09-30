@@ -74,6 +74,7 @@ BEGIN TRANSACTION;
         FROM #vouchers AS v
         INNER JOIN dbo.vourowx AS r ON v.[year]=r.[year] AND v.serie=r.serie AND v.vouno=r.vouno
         INNER JOIN dbo.seriex AS s ON v.[year]=s.[year] AND v.serie=s.serie
+        WHERE r.altered!=2
         GROUP BY r.[year], r.[period], r.cid, r.serie, s.dmy,
                  r.account, r.currency, r.o1, r.o2, r.o3, r.o4, r.o5, r.o6, r.o7, r.o8, r.basecurrency),
 
