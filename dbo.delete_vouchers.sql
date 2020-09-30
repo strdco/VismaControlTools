@@ -62,7 +62,7 @@ BEGIN TRANSACTION;
     --- Update dbo.containerx (types 0, 1, 9, 10)
     ---------------------------------------------
 
-    --- 9/10: these are actuals. 9 means actuals for regular voucher series, 10 are actuals for simulation series:
+    --- 9/10: these are actuals. type=9 means actuals for regular voucher series, 10 are actuals for simulation series:
     WITH actuals AS (
         SELECT r.[year], r.[period], CAST((CASE WHEN S.dmy IN (2, 4) THEN 10 ELSE 9 END) AS smallint) AS [type], r.cid,
                (CASE WHEN s.dmy IN (2, 4) THEN r.serie END) AS serie,
@@ -71,10 +71,10 @@ BEGIN TRANSACTION;
                SUM(r.foramount) AS foramount,
                SUM(r.number) AS number,
                SUM(r.baseamount) AS baseamount
-        FROM #vouchers AS v
-        INNER JOIN dbo.vourowx AS r ON v.[year]=r.[year] AND v.serie=r.serie AND v.vouno=r.vouno
-        INNER JOIN dbo.seriex AS s ON v.[year]=s.[year] AND v.serie=s.serie
+        FROM dbo.vourowx AS r WITH (TABLOCKX, HOLDLOCK)
+        INNER JOIN dbo.seriex AS s ON r.[year]=s.[year] AND r.serie=s.serie
         WHERE r.altered!=2
+          AND s.dmy!=3
         GROUP BY r.[year], r.[period], r.cid, r.serie, s.dmy,
                  r.account, r.currency, r.o1, r.o2, r.o3, r.o4, r.o5, r.o6, r.o7, r.o8, r.basecurrency),
 
@@ -82,30 +82,45 @@ BEGIN TRANSACTION;
     ---      but 1 cannot include the "result" account.
     opening AS (
         SELECT [year], [period], [type], cid, serie,
-               account, currency, o1, o2, o3, o4, o5, o6, o7, o8,
+               account, CAST(currency AS varchar(3)) AS currency, o1, o2, o3, o4, o5, o6, o7, o8,
                basecurrency, amount, foramount, number, baseamount
         FROM actuals
 
         UNION ALL
 
         SELECT CAST(o.[year]+1 AS smallint), CAST(0 AS tinyint) AS [period], x.[type], o.cid, NULL AS serie,
-               x.account, o.currency, o.o1, o.o2, o.o3, o.o4, o.o5, o.o6, o.o7, o.o8,
+               x.account, x.currency, x.o1, x.o2, x.o3, x.o4, x.o5, x.o6, x.o7, x.o8,
                o.basecurrency, o.amount, o.foramount, o.number, o.baseamount
         FROM opening AS o
         INNER JOIN dbo.accountx AS a ON o.account=a.account
-        INNER JOIN dbo.accountx AS r ON r.[standard]=9 --- Profit/loss for the financial year (BAS: 2099)
+        INNER JOIN dbo.accountx AS pl ON pl.[standard]=9 --- Profit/loss for the financial year (BAS: 2099)
         CROSS APPLY (
+            --- Opening balances:
+            SELECT CAST(1 AS smallint) AS [type],
+                   o.account,
+                   o.currency,
+                   o.o1, o.o2, o.o3, o.o4,
+                   o.o5, o.o6, o.o7, o.o8
+            WHERE o.[type] IN (1, 9)
+
+            UNION ALL
+
             --- Opening balances (with previous year's P&L in the @resaccount account):
             SELECT CAST(1 AS smallint) AS [type],
-                   (CASE WHEN a.acctype IN (3, 4) AND o.[type]=9 THEN r.account
-                         ELSE o.account END) AS account
-            WHERE o.[type] IN (1, 9)
+                   pl.account,
+                   NULL AS currency,
+                   NULL AS o1, NULL AS o2, NULL AS o3, NULL AS o4,
+                   NULL AS o5, NULL AS o6, NULL AS o7, NULL AS o8
+            WHERE o.[type]=9 AND a.acctype IN (3, 4)
 
             UNION ALL
 
             --- Previous year's actuals:
             SELECT CAST(0 AS smallint) AS [type],
-                   o.account
+                   o.account,
+                   o.currency,
+                   o.o1, o.o2, o.o3, o.o4,
+                   o.o5, o.o6, o.o7, o.o8
             WHERE o.[type]=9
             ) AS x
         WHERE o.[year]<@top_year),
@@ -135,6 +150,11 @@ BEGIN TRANSACTION;
                    c.foramount=c.foramount-bal.foramount,
                    c.number=c.number-bal.number,
                    c.baseamount=c.baseamount-bal.baseamount
+
+    --- If we've changed something that doesn't exist in dbo.containerx, INSERT that row here:
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (cid, [year], model, [period], [type], account, currency, o1, o2, o3, o4, o5, o6, o7, o8, amount, foramount, number, basecurrency, baseamount, serie, flag)
+        VALUES (bal.cid, bal.[year], NULL, bal.[period], bal.[type], bal.account, bal.currency, bal.o1, bal.o2, bal.o3, bal.o4, bal.o5, bal.o6, bal.o7, bal.o8, -bal.amount, -bal.foramount, -bal.number, bal.basecurrency, -bal.baseamount, bal.serie, 0);
 
 --  OUTPUT $action, deleted.[year], deleted.[type], deleted.[period], deleted.account, deleted.o1, deleted.amount AS [deleted.amount], bal.amount AS [change amount], inserted.amount AS [inserted.amount]
 ;
