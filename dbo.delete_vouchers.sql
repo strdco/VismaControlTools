@@ -71,8 +71,9 @@ BEGIN TRANSACTION;
                SUM(r.foramount) AS foramount,
                SUM(r.number) AS number,
                SUM(r.baseamount) AS baseamount
-        FROM dbo.vourowx AS r WITH (TABLOCKX, HOLDLOCK)
-        INNER JOIN dbo.seriex AS s ON r.[year]=s.[year] AND r.serie=s.serie
+        FROM #vouchers AS v
+        INNER JOIN dbo.vourowx AS r WITH (TABLOCKX, HOLDLOCK) ON v.[year]=r.[year] AND v.serie=r.serie AND v.vouno=r.vouno
+        INNER JOIN dbo.seriex AS s WITH (ROWLOCK, HOLDLOCK) ON r.[year]=s.[year] AND r.serie=s.serie
         WHERE r.altered!=2
           AND s.dmy!=3
         GROUP BY r.[year], r.[period], r.cid, r.serie, s.dmy,
